@@ -1,0 +1,8 @@
+# Phone use agent core dependencies
+vllm
+transformers
+torch
+Pillow
+qwen-vl-utils
+protobuf
+gradio

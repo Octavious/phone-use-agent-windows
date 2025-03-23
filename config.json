@@ -1,0 +1,18 @@
+{
+  "device_id": null,
+  "screen_width": 1080,
+  "screen_height": 2340,
+  "omniparser_path": "./OmniParser",
+  "screenshot_dir": "./screenshots",
+  "max_retries": 3,
+  "qwen_model_path": "Qwen/Qwen2.5-VL-3B-Instruct",
+  "use_gpu": true,
+  "temperature": 0.1,
+
+  "omniparser_config": {
+    "use_paddleocr": true,
+    "box_threshold": 0.05,
+    "iou_threshold": 0.1,
+    "imgsz": 640
+  }
+}
