@@ -30,7 +30,7 @@ class QwenVLAgent:
         if use_gpu:
             gpu_config = {
                 "dtype": "bfloat16",
-                "gpu_memory_utilization": 0.98 ## Can be lowered to prevent OOM - this is an aggressive setting
+                "gpu_memory_utilization": 0.80 # This works on a 24gb card with Omniparser running as well
             }
         
         # Create the vLLM LLM instance
