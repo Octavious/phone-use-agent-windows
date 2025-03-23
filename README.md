@@ -36,29 +36,29 @@ adb version
 
 ## Setup with OmniParser
 
-1a. Clone this repository:
+1. Clone this repository:
    ```bash
    git clone https://github.com/OminousIndustries/phone-use-agent.git
    cd phone-use-agent
    ```
 
-1b. Clone OmniParser into the phone-use-agent directory:
+2. Clone OmniParser into the phone-use-agent directory:
    ```bash
    git clone https://github.com/microsoft/OmniParser.git
    ```
 
-2. Create and activate conda environment:
+3. Create and activate conda environment:
    ```bash
    conda create -n "phone_agent" python==3.10
    conda activate phone_agent
    ```
 
-3. Install all dependencies:
+4. Install all dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-4. Download OmniParser weights:
+5. Download OmniParser weights:
    ```bash
    cd OmniParser
 
@@ -74,7 +74,7 @@ adb version
    mv weights/icon_caption weights/icon_caption_florence
    ```
 
-5. Return to main directory:
+6. Return to main directory:
    ```bash
    cd ..
    ```
