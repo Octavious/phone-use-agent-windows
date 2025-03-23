@@ -55,7 +55,7 @@ adb version
 
 4. Clone OmniParser:
    ```bash
-   git clone https://github.com/OmniParser/OmniParser.git
+   git clone https://github.com/microsoft/OmniParser.git
    cd OmniParser
    ```
 
