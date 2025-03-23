@@ -36,47 +36,45 @@ adb version
 
 ## Setup with OmniParser
 
-1. Clone this repository:
+1a. Clone this repository:
    ```bash
    git clone https://github.com/OminousIndustries/phone-use-agent.git
    cd phone-use-agent
    ```
 
+1b. Clone OmniParser into the phone-use-agent directory:
+   ```bash
+   git clone https://github.com/microsoft/OmniParser.git
+   ```
+
 2. Create and activate conda environment:
    ```bash
-   conda create -n "phone_agent" python==3.12
+   conda create -n "phone_agent" python==3.10
    conda activate phone_agent
    ```
 
-3. Install Phone Agent dependencies:
+3. Install all dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-4. Clone OmniParser:
+4. Download OmniParser weights:
    ```bash
-   git clone https://github.com/microsoft/OmniParser.git
    cd OmniParser
-   ```
 
-5. Install OmniParser dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+   # Create a folder for icon_detect but NOT icon_caption_florence:
+   mkdir -p weights/icon_detect
 
-6. Download OmniParser weights:
-   ```bash
-   # Create weights directories
-   mkdir -p weights/icon_detect weights/icon_caption_florence
-   
-   # Download weights
-   for f in icon_detect/{train_args.yaml,model.pt,model.yaml} icon_caption/{config.json,generation_config.json,model.safetensors}; do huggingface-cli download microsoft/OmniParser-v2.0 "$f" --local-dir weights; done
-   
-   # Rename directory
+   # Download weights from HF
+   for f in icon_detect/{train_args.yaml,model.pt,model.yaml} icon_caption/{config.json,generation_config.json,model.safetensors}; do
+       huggingface-cli download microsoft/OmniParser-v2.0 "$f" --local-dir weights
+   done
+
+   # Rename the icon_caption -> icon_caption_florence
    mv weights/icon_caption weights/icon_caption_florence
    ```
 
-7. Return to main directory:
+5. Return to main directory:
    ```bash
    cd ..
    ```
