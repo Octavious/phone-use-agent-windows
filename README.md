@@ -106,13 +106,13 @@ Update the values in `config.json` to match your device's resolution exactly. In
    ```bash
    conda activate phone_agent
    ```
-
-3. Run a task:
+3. Reccomended to run the first time through the CLI so we can see vLLM Qwen2.5VL download process
+4. Run a task:
    ```bash
    python main.py --task "Open Chrome and search for weather in New York" --max-cycles 10
    ```
 
-4. Additional options:
+5. Additional options:
    ```bash
    python main.py --help
    ```
