@@ -190,22 +190,6 @@ The Main Controller manages execution cycles, tracks context between actions, ha
 - **Gradio errors**: If using the UI, make sure you have gradio installed (`pip install gradio`)
 - **OOM Errors from vLLM**: The Qwen2.5VL 3B and 7B models can take up a lot of memory. If you have a dual GPU setup, it is possible to set Omniparser to run on the second GPU to allow for more memory to run the model on the first GPU by uncommenting `# os.environ["CUDA_VISIBLE_DEVICES"] = "1"` on line 21 of omniparser_runner.py 
 
-## Project Structure
-
-```
-phone-use-agent/
-├── config.json            # Configuration file
-├── main.py                # Command-line entry point
-├── phone_agent.py         # Core agent implementation
-├── qwen_vl_agent.py       # Qwen VL integration
-├── omniparser_runner.py   # OmniParser integration
-├── ui.py                  # Gradio web interface
-├── requirements.txt       # Dependencies
-├── screenshots/           # Directory for screenshots
-└── OmniParser/            # OmniParser submodule
-    └── weights/           # Model weights
-```
-
 ## Experimental Status
 
 This project is experimental and intended for research purposes. It may not work perfectly for all devices or UI layouts.
