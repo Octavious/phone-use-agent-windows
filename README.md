@@ -194,6 +194,3 @@ The Main Controller manages execution cycles, tracks context between actions, ha
 
 This project is experimental and intended for research purposes. It may not work perfectly for all devices or UI layouts.
 
-## License
-
-MIT License
