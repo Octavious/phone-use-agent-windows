@@ -222,7 +222,7 @@ def main():
     demo = create_ui()
     # Optional concurrency management
     demo.queue()
-    demo.launch(server_name="0.0.0.0", share=True)
+    demo.launch(server_name="0.0.0.0", share=False)
 
 if __name__ == "__main__":
     main()
