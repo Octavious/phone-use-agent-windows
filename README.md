@@ -14,10 +14,10 @@ The Phone Use Agent automates interactions with Android devices by:
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10
 - Linux operating system
 - Android Debug Bridge (ADB)
-- CUDA-capable GPU (recommended)
+- CUDA-capable GPU (Tested on 3xxx GPU with Cuda 12.4)
 - Connected Android device with USB debugging enabled
 
 ## Installing ADB on Linux
