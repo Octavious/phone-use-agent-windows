@@ -1,6 +1,7 @@
-# Phone Use Agent
+# Phone Use Agent for Winodws
 
-An experimental Python agent that controls Android phones using Qwen2.5-VL, OmniParser, and ADB.
+An experimental Python agent that controls Android phones using ~~Qwen2.5-VL~~ Gemini 2.0 Flash, OmniParser, and ADB.
+I left the Qwen2.5 VL code in, theoritically it should work on windows with my modifications, but i could not test it, since i dont have a good GPU, hence i replaced it with Gemini 2.0 Flash.
 
 ![Phone Use Agent Architecture](docs/workflow.png)
 
@@ -9,27 +10,26 @@ An experimental Python agent that controls Android phones using Qwen2.5-VL, Omni
 The Phone Use Agent automates interactions with Android devices by:
 - Taking screenshots via ADB
 - Analyzing UI elements with OmniParser
-- Making decisions with Qwen2.5-VL vision language model through vLLM
+- Making decisions with ~~Qwen2.5-VL vision language model through vLLM~~ Gemini 2.0 Flash 
 - Executing actions (tap, swipe, type) through ADB
 
 ## Requirements
 
 - Python 3.10
-- Windows 10/11 or Linux operating system
+- Windows 10/11 operating system
 - Android Debug Bridge (ADB)
-- CUDA-capable GPU (Tested on 3xxx GPU with Cuda 12.4)
+- CUDA-capable GPU (Tested on 3xxx GPU with Cuda 12.4) (Preffered for Omni Parser)
 - Connected Android device with USB debugging enabled
 
 ## Installing ADB
 
 ### On Windows:
-1. Download Android Studio from https://developer.android.com/studio
-2. During installation, make sure to install the Android SDK
-3. Add the platform-tools to your PATH:
+1. Download adb from [SDK Platform-Tools for Windows](https://developer.android.com/tools/releases/platform-tools)
+2. Add the platform-tools to your PATH:
    - Open System Properties > Advanced > Environment Variables
    - Under System Variables, find and select "Path"
    - Click Edit and add the path to platform-tools (typically `%LOCALAPPDATA%\Android\Sdk\platform-tools`)
-4. Verify the installation by opening a new Command Prompt and running:
+3. Verify the installation by opening a new Command Prompt and running:
    ```cmd
    adb version
    ```
@@ -48,46 +48,28 @@ adb version
 ## Setup with OmniParser
 
 1. Clone this repository:
-   ```bash
-   git clone https://github.com/OminousIndustries/phone-use-agent.git
-   cd phone-use-agent
+   ```cmd
+   git clone https://github.com/Octavious/phone-use-agent-windows
+   cd phone-use-agent-windows
    ```
 
 2. Clone OmniParser into the phone-use-agent directory:
-   ```bash
+   ```cmd
    git clone https://github.com/microsoft/OmniParser.git
    ```
-
-3. Create and activate conda environment:
-   ```bash
-   conda create -n "phone_agent" python==3.10
-   conda activate phone_agent
+3. Download OmniParser weights:
+   ```cmd
+   .\download_omniparser_weights.bat
+   ```
+4. Create and activate ~~conda~~ uv environment:
+   ```cmd
+   uv venv --python 3.10
+   .venv\Scripts\activate
    ```
 
-4. Install all dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-5. Download OmniParser weights:
-   ```bash
-   cd OmniParser
-
-   # Create a folder for icon_detect but NOT icon_caption_florence:
-   mkdir -p weights/icon_detect
-
-   # Download weights from HF
-   for f in icon_detect/{train_args.yaml,model.pt,model.yaml} icon_caption/{config.json,generation_config.json,model.safetensors}; do
-       huggingface-cli download microsoft/OmniParser-v2.0 "$f" --local-dir weights
-   done
-
-   # Rename the icon_caption -> icon_caption_florence
-   mv weights/icon_caption weights/icon_caption_florence
-   ```
-
-6. Return to main directory:
-   ```bash
-   cd ..
+5. Install all dependencies:
+   ```cmd
+   uv pip install -r requirements.txt
    ```
 
 ## Device Configuration
@@ -102,7 +84,7 @@ adb version
 ```
 
 To find your device's resolution, run:
-```bash
+```cmd
 adb shell wm size
 ```
 
@@ -121,7 +103,7 @@ Update the values in `config.json` to match your device's resolution exactly. In
 
 3. Configure GPU Memory:
    - The application will automatically adjust GPU memory settings for Windows
-   - If you experience OOM errors, you can modify the GPU settings in `qwen_vl_agent.py`
+   - If you experience OOM errors, you can modify the GPU settings in `qwen_vl_agent-windows.py` __I haven't tried this__
 
 4. ADB Configuration:
    - The application will automatically detect your ADB installation
@@ -137,22 +119,18 @@ Update the values in `config.json` to match your device's resolution exactly. In
 ### Command Line Interface
 
 1. Connect your Android device via USB and enable USB debugging in Developer Options
-2. Ensure conda environment is activated:
-   ```bash
-   conda activate phone_agent
+2. Ensure ~~conda~~ uv environment is activated:
+   ```cmd
+   .venv\Scripts\activate
    ```
-3. Reccomended to run the first time through the CLI so we can see vLLM Qwen2.5VL download process
-4. Run a task:
-   ```bash
-   python main.py --task "Open Chrome and search for weather in New York" --max-cycles 10
-   ```
-
-5. Additional options:
-   ```bash
-   python main.py --help
+3. ~~Reccomended to run the first time through the CLI so we can see vLLM Qwen2.5VL download process~~
+4. Define tasks in the tasks.json file
+5. Run tasks:
+   ```cmd
+   \run_tasks.py
    ```
 
-### Graphical User Interface
+### Graphical User Interface  __I haven't tried this__
 
 A simple Gradio UI is provided to visualize the agent's progress:
 
@@ -170,7 +148,8 @@ The UI provides:
 
 Edit `config.json` to configure:
 - Device dimensions (must match your actual device)
-- Model selection (3B vs 7B)
+- Model selection (3B vs 7B) __I haven't tried this__
+- adb path
 - OmniParser settings
 - General execution parameters
 
@@ -179,6 +158,7 @@ Edit `config.json` to configure:
   "device_id": null,
   "screen_width": 1080,
   "screen_height": 2340,
+  "adb_path": "F:\\AndroidSDK\\platform-tools\\adb.exe",
   "omniparser_path": "./OmniParser",
   "screenshot_dir": "./screenshots",
   "max_retries": 3,
@@ -203,9 +183,10 @@ The Phone Agent follows this workflow:
 1. **User Request**: Define a task like "Open Chrome and search for weather"
 2. **Capture**: Take a screenshot of the phone screen via ADB
 3. **Analyze**: Use OmniParser to identify UI elements (buttons, text fields, icons)
-4. **Decide**: Qwen2.5-VL analyzes screenshot and elements to determine next action
+4. **Decide**: ~~Qwen2.5-VL~~ Gemini 2.0 Flash analyzes screenshot and elements to determine next action
 5. **Execute**: ADB performs the action (tap, swipe, type text)
-6. **Repeat**: Continue the cycle until task completion or max cycles reached
+~~6. **Repeat**: Continue the cycle until task completion or max cycles reached~~
+6. **Execute Next Task**: If previous task was successful, execute next task in the list
 
 The Main Controller manages execution cycles, tracks context between actions, handles errors, and implements retry logic when actions fail.
 
@@ -213,7 +194,7 @@ The Main Controller manages execution cycles, tracks context between actions, ha
 
 - **ADB Bridge**: Handles communication with the Android device
 - **OmniParser**: Identifies interactive elements on the screen
-- **Qwen VL Agent**: Makes decisions based on visual input and task context
+~~- **Qwen VL Agent**: Makes decisions based on visual input and task context~~ __Theoritically it should work on windows with my modifications, but i could not test it, since i dont have a good GPU, hence i replaced it with Gemini 2.0 Flash__
 - **Main Controller**: Orchestrates the execution cycles and manages state
 
 ## Troubleshooting
