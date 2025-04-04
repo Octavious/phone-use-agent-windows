@@ -3,6 +3,8 @@
 An experimental Python agent that controls Android phones using ~~Qwen2.5-VL~~ Gemini 2.0 Flash, OmniParser, and ADB.
 I left the Qwen2.5 VL code in, theoritically it should work on windows with my modifications, but i could not test it, since i dont have a good GPU, hence i replaced it with Gemini 2.0 Flash.
 
+![Flow and UseCase](docs/HowItWorks.png)
+
 ![Phone Use Agent Architecture](docs/workflow.png)
 
 ## Overview
@@ -214,6 +216,18 @@ The Main Controller manages execution cycles, tracks context between actions, ha
 - **OmniParser errors**: Check that all model weights are correctly downloaded and placed in the proper directories
 - **Gradio errors**: If using the UI, make sure you have gradio installed (`pip install gradio`)
 - **OOM Errors from vLLM**: The Qwen2.5VL 3B and 7B models can take up a lot of memory. If you have a dual GPU setup, it is possible to set Omniparser to run on the second GPU to allow for more memory to run the model on the first GPU by uncommenting `# os.environ["CUDA_VISIBLE_DEVICES"] = "1"` on line 21 of omniparser_runner.py 
+
+
+## OmniParser Visualizer
+OmniParser returns an image with filtered boxes in __json format__, which is saved under __screenshots/debug folder__.
+
+To visualize the OmniParser json file with filtered boxes, i have implemented a small utility which can be found under utils/box-visualizer, you can run it as a separate tool using:
+   ```cmd
+   cd utils\box-visualizer
+   pip install -r requirements.txt
+   python visualize_boxes.py
+
+   ```
 
 ## Experimental Status
 
