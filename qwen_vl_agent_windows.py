@@ -1,48 +1,55 @@
 import os
 import base64
 import logging
+import platform
 from pathlib import Path
-
-# Import Qwen VL and vLLM dependencies
-from transformers import AutoProcessor
-from qwen_vl_utils import process_vision_info
-from vllm import LLM, SamplingParams
+import torch
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoModelForVision2Seq
 
 class QwenVLAgent:
     """
-    Vision-Language LLM integration for the phone agent using Qwen2.5-VL with vLLM.
+    Vision-Language LLM integration for the phone agent using Qwen2.5-VL with standard transformers.
     This class handles the processing of screenshots and generation of actions.
     """
     
     def __init__(self, model_path, use_gpu=True, temperature=0.1):
         """
-        Initialize the Qwen VL model with vLLM for optimal performance.
+        Initialize the Qwen VL model with standard transformers.
         
         Args:
             model_path (str): Path to the Qwen model
             use_gpu (bool): Whether to use GPU acceleration
             temperature (float): Sampling temperature for generation
         """
-        logging.info(f"Loading vLLM-based Qwen model from: {model_path} ...")
+        logging.info(f"Loading Qwen model from: {model_path} ...")
         
-        # Configure GPU usage
-        gpu_config = {}
-        if use_gpu:
-            gpu_config = {
-                "dtype": "bfloat16",
-                "gpu_memory_utilization": 0.80 # This works on a 24gb card with Omniparser running as well
-            }
+        # Configure device
+        self.device = "cuda" if use_gpu and torch.cuda.is_available() else "cpu"
         
-        # Create the vLLM LLM instance
-        self.llm = LLM(
-            model=model_path,
-            max_model_len=32768,
-            limit_mm_per_prompt={"image": 1},  # We only need one screenshot at a time
-            **gpu_config
-        )
-        
-        # Create the processor for building prompts + handling images
-        self.processor = AutoProcessor.from_pretrained(model_path)
+        # Load model and processor
+        try:
+            # First try loading as a vision-language model
+            try:
+                self.model = AutoModelForVision2Seq.from_pretrained(
+                    model_path,
+                    device_map="auto",
+                    torch_dtype=torch.bfloat16 if self.device == "cuda" else torch.float32,
+                    trust_remote_code=True
+                )
+                self.processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
+            except Exception as e:
+                logging.warning(f"Failed to load as vision-language model: {e}")
+                # Fallback to causal LM if needed
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    model_path,
+                    device_map="auto",
+                    torch_dtype=torch.bfloat16 if self.device == "cuda" else torch.float32,
+                    trust_remote_code=True
+                )
+                self.processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
+        except Exception as e:
+            logging.error(f"Error loading model: {e}")
+            raise
         
         # Set default parameters
         self.temperature = temperature
@@ -50,22 +57,22 @@ class QwenVLAgent:
         
         # System prompt
         self.system_prompt = """
-	You are a phone UI automation agent. Your task is to analyze phone screenshots and determine
-	the next action to take based on the user's request. You will be shown a single screenshot
-	of a phone screen along with information about interactive elements.
-    
-    IMPORTANT UI RULES:
-    1. If you need to enter text into a text field, you MUST first 'tap' that text field (even if it appears selected) in one cycle. 
-    2. On the *next* cycle, you can 'type' into that field. Never 'type' without a prior 'tap' on the same element.
+        You are a phone UI automation agent. Your task is to analyze phone screenshots and determine
+        the next action to take based on the user's request. You will be shown a single screenshot
+        of a phone screen along with information about interactive elements.
+        
+        IMPORTANT UI RULES:
+        1. If you need to enter text into a text field, you MUST first 'tap' that text field (even if it appears selected) in one cycle. 
+        2. On the *next* cycle, you can 'type' into that field. Never 'type' without a prior 'tap' on the same element.
 
-	IMPORTANT: 
-	1. You must respond ONLY with a JSON object containing a single action to perform.
-	2. Valid actions are 'tap', 'swipe', 'type', and 'wait'.
-	3. For tap actions, you must include the element ID and coordinates.
-	4. Include a brief reasoning explaining why you chose this action.
+        IMPORTANT: 
+        1. You must respond ONLY with a JSON object containing a single action to perform.
+        2. Valid actions are 'tap', 'swipe', 'type', and 'wait'.
+        3. For tap actions, you must include the element ID and coordinates.
+        4. Include a brief reasoning explaining why you chose this action.
         """
         
-        logging.info("vLLM Qwen model loaded successfully.")
+        logging.info("Qwen model loaded successfully.")
     
     def _encode_image(self, image_path):
         """
@@ -143,7 +150,7 @@ class QwenVLAgent:
         """
         
         # Create Qwen-style messages
-        qwen_messages = [
+        messages = [
             {
                 "role": "system",
                 "content": [{"type": "text", "text": self.system_prompt.strip()}]
@@ -163,66 +170,44 @@ class QwenVLAgent:
             }
         ]
         
-        # Build the prompt using Qwen's apply_chat_template
-        prompt = self.processor.apply_chat_template(
-            qwen_messages,
-            tokenize=False,
-            add_generation_prompt=True
-        )
+        # Process the input
+        inputs = self.processor(
+            messages,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=32768
+        ).to(self.device)
         
-        # Prepare multi-modal data
-        image_inputs, video_inputs, video_kwargs = process_vision_info(
-            qwen_messages,
-            return_video_kwargs=True
-        )
+        # Generate response
+        with torch.no_grad():
+            outputs = self.model.generate(
+                **inputs,
+                max_new_tokens=self.max_tokens,
+                temperature=self.temperature,
+                do_sample=True,
+                pad_token_id=self.processor.tokenizer.pad_token_id,
+                eos_token_id=self.processor.tokenizer.eos_token_id
+            )
         
-        # Build dict for vLLM
-        mm_data = {}
-        if image_inputs is not None:
-            mm_data["image"] = image_inputs
+        # Decode the response
+        response = self.processor.decode(outputs[0], skip_special_tokens=True)
         
-        # Construct final llm_inputs
-        llm_inputs = {
-            "prompt": prompt,
-            "multi_modal_data": mm_data,
-            "mm_processor_kwargs": video_kwargs,
-        }
-        
-        # Build SamplingParams
-        sampling_params = SamplingParams(
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            repetition_penalty=1.05,
-            top_p=0.9,
-            top_k=40
-        )
-        
-        # Run vLLM inference
-        outputs = self.llm.generate([llm_inputs], sampling_params=sampling_params)
-        
-        # Process the result
-        if not outputs or not outputs[0].outputs:
-            logging.error("No output generated by the model")
-            return None
-        
-        generated_text = outputs[0].outputs[0].text
-        
-        # Parse the JSON response
+        # Extract the JSON response
         try:
-            import json
-            import re
-            
-            # Try to extract JSON if it's within a code block or other formatting
-            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', generated_text)
-            if json_match:
-                action_json = json.loads(json_match.group(1).strip())
+            # Find the JSON object in the response
+            start_idx = response.find('{')
+            end_idx = response.rfind('}') + 1
+            if start_idx != -1 and end_idx != 0:
+                json_str = response[start_idx:end_idx]
+                import json
+                return json.loads(json_str)
             else:
-                # Try to parse the whole text as JSON
-                action_json = json.loads(generated_text.strip())
-            
-            logging.info(f"Generated action: {action_json}")
-            return action_json
-        except (json.JSONDecodeError, Exception) as e:
-            logging.error(f"Error parsing model output: {e}")
-            logging.error(f"Raw output: {generated_text}")
-            return None
+                raise ValueError("No JSON object found in response")
+        except Exception as e:
+            logging.error(f"Error parsing model response: {e}")
+            return {
+                "action": "wait",
+                "waitTime": 1000,
+                "reasoning": "Error parsing model response, waiting for next cycle"
+            } 

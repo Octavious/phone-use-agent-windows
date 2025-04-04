@@ -5,25 +5,28 @@ import logging
 import tempfile
 import subprocess
 import base64
+import platform
 from datetime import datetime
 from pathlib import Path
 import ast
 
-# Import our Qwen VL integration
-from qwen_vl_agent import QwenVLAgent
+# Import our Gemini VL integration
+from gemini_vl_agent import GeminiVLAgent
 
 class PhoneAgent:
     """
-    A phone agent that uses Qwen2.5-VL to analyze screenshots and control a physical 
+    A phone agent that uses Gemini 2.0 Flash to analyze screenshots and control a physical 
     Android phone via ADB.
     """
     
-    def __init__(self, config=None):
+    def __init__(self, vl_agent, config=None, max_cycles=10):
         """
         Initialize the phone agent with configuration.
         
         Args:
+            vl_agent: Vision-Language agent instance (GeminiVLAgent)
             config (dict): Configuration for the agent
+            max_cycles (int): Maximum number of execution cycles
         """
         default_config = {
             'device_id': None,  # Will use first connected device if None
@@ -32,14 +35,20 @@ class PhoneAgent:
             'omniparser_path': './omniparser',
             'screenshot_dir': './screenshots',
             'max_retries': 3,
-            'qwen_model_path': 'Qwen/Qwen2.5-VL-3B-Instruct',
-            'use_gpu': True,
-            'temperature': 0.1
+            'adb_path': None  # Path to adb executable
         }
         
-        self.config = default_config
+        # Update default config with provided config
         if config:
-            self.config.update(config)
+            for key, value in config.items():
+                if key in default_config:
+                    default_config[key] = value
+                else:
+                    logging.warning(f"Unknown config key: {key}")
+            
+        self.config = default_config
+        self.vl_agent = vl_agent
+        self.max_cycles = max_cycles
         
         self.context = {
             'previous_actions': [],
@@ -48,490 +57,396 @@ class PhoneAgent:
             'session_id': datetime.now().strftime("%Y%m%d_%H%M%S")
         }
         
-        # Set up logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(f"phone_agent_{self.context['session_id']}.log"),
-                logging.StreamHandler()
-            ]
-        )
-
-        # Initialize the Qwen VL model
-        logging.info("Initializing Qwen VL agent... may take a while")
-        self.vl_agent = QwenVLAgent(
-            model_path=self.config['qwen_model_path'],
-            use_gpu=self.config['use_gpu'],
-            temperature=self.config['temperature']
-        )
-        
+        # Set up directories and ADB
         self._setup_directories()
+        self._setup_adb()
+        
+        # Verify ADB connection
         self._check_adb_connection()
+        
+        logging.info(f"Phone Agent initialized with device: {self.config['device_id']}")
     
     def _setup_directories(self):
-        """Create necessary directories for storing screenshots."""
-        Path(self.config['screenshot_dir']).mkdir(parents=True, exist_ok=True)
-        logging.info(f"Ensured directory exists: {self.config['screenshot_dir']}")
+        """Set up required directories."""
+        # Create screenshots directory
+        screenshots_dir = Path(self.config['screenshot_dir'])
+        screenshots_dir.mkdir(parents=True, exist_ok=True)
+        logging.info(f"Ensured directory exists: {screenshots_dir}")
+    
+    def _setup_adb(self):
+        """Set up ADB connection."""
+        if platform.system() == 'Windows':
+            # Try to find ADB in common locations
+            adb_paths = [
+                self.config.get('adb_path'),
+                os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Android', 'Sdk', 'platform-tools', 'adb.exe'),
+                os.path.join(os.environ.get('ANDROID_HOME', ''), 'platform-tools', 'adb.exe'),
+                'adb.exe'  # Try in PATH
+            ]
+            
+            for path in adb_paths:
+                if path and os.path.exists(path):
+                    self.config['adb_path'] = path
+                    break
+                    
+            if not self.config['adb_path']:
+                raise RuntimeError("ADB not found. Please install Android SDK platform-tools or specify adb_path in config.")
+        else:
+            self.config['adb_path'] = 'adb'
     
     def _check_adb_connection(self):
-        """Verify ADB connection to the device."""
+        """Verify ADB connection to device."""
         try:
-            # Check for connected devices
-            result = subprocess.run(
-                "adb devices",
-                shell=True, check=True, capture_output=True, text=True
-            )
+            # Get list of devices
+            result = self._run_adb_command('devices')
+            devices = [line.split('\t')[0] for line in result.split('\n')[1:] if line.strip()]
             
-            # Get the device ID
-            if self.config['device_id'] is None:
-                # Extract the first device from the list
-                lines = result.stdout.strip().split('\n')
-                if len(lines) > 1:  # First line is "List of devices attached"
-                    device_info = lines[1].split('\t')
-                    if len(device_info) > 0 and device_info[1].strip() == 'device':
-                        self.config['device_id'] = device_info[0].strip()
-                        logging.info(f"Using device: {self.config['device_id']}")
-                    else:
-                        raise Exception("No authorized device found")
-                else:
-                    raise Exception("No devices connected")
+            if not devices:
+                raise RuntimeError("No devices found. Please connect an Android device.")
             
-            # Test a simple ADB command to verify connection
-            device_cmd_prefix = f"-s {self.config['device_id']}" if self.config['device_id'] else ""
-            subprocess.run(
-                f"adb {device_cmd_prefix} shell echo 'Connected'",
-                shell=True, check=True, capture_output=True, text=True
-            )
+            # Use specified device or first available
+            if self.config['device_id']:
+                if self.config['device_id'] not in devices:
+                    raise RuntimeError(f"Specified device {self.config['device_id']} not found.")
+                device_id = self.config['device_id']
+            else:
+                device_id = devices[0]
+                self.config['device_id'] = device_id
             
+            logging.info(f"Using device: {device_id}")
+            
+            # Verify device is responsive
+            self._run_adb_command('shell echo "ADB connection verified"')
             logging.info("ADB connection verified")
-        except subprocess.CalledProcessError as e:
+            
+        except Exception as e:
             logging.error(f"ADB connection error: {e}")
-            raise Exception("Failed to connect to device via ADB. Make sure USB debugging is enabled.")
+            raise
     
     def _run_adb_command(self, command):
-        """
-        Run an ADB command on the connected device.
-        
-        Args:
-            command (str): ADB command to run
-            
-        Returns:
-            str: Command output
-        """
-        device_cmd_prefix = f"-s {self.config['device_id']}" if self.config['device_id'] else ""
-        full_command = f"adb {device_cmd_prefix} {command}"
-        
+        """Run an ADB command and return its output."""
         try:
-            result = subprocess.run(
-                full_command,
-                shell=True, check=True, capture_output=True, text=True
-            )
-            return result.stdout
-        except subprocess.CalledProcessError as e:
-            logging.error(f"ADB command error: {e}")
-            logging.error(f"Command stderr: {e.stderr}")
+            full_command = f"{self.config['adb_path']} -s {self.config['device_id']} {command}"
+            result = subprocess.run(full_command, shell=True, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                raise RuntimeError(f"ADB command failed: {result.stderr}")
+                
+            return result.stdout.strip()
+            
+        except Exception as e:
+            logging.error(f"Error running ADB command: {e}")
             raise
     
     def capture_screen(self):
-        """
-        Capture screenshot from the device.
-        
-        Returns:
-            str: Path to the saved screenshot
-        """
-        timestamp = int(time.time())
-        screenshot_path = os.path.join(
-            self.config['screenshot_dir'],
-            f"screen_{self.context['session_id']}_{timestamp}.png"
-        )
-        
+        """Capture a screenshot of the device screen."""
         try:
-            # Use ADB to capture screenshot and save it locally
-            # For a physical device, we use the following approach
-            self._run_adb_command(f"shell screencap -p /sdcard/screenshot.png")
-            self._run_adb_command(f"pull /sdcard/screenshot.png {screenshot_path}")
-            self._run_adb_command(f"shell rm /sdcard/screenshot.png")
+            # Generate unique filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"screen_{timestamp}_{int(time.time())}.png"
+            screenshot_path = Path(self.config['screenshot_dir']) / filename
+            
+            # Capture screenshot
+            self._run_adb_command(f'shell screencap -p /sdcard/{filename}')
+            self._run_adb_command(f'pull /sdcard/{filename} "{screenshot_path}"')
+            self._run_adb_command(f'shell rm /sdcard/{filename}')
             
             logging.info(f"Screenshot saved to: {screenshot_path}")
-            return screenshot_path
+            return str(screenshot_path)
+            
         except Exception as e:
-            logging.error(f"Error capturing screenshot: {e}")
+            logging.error(f"Error capturing screen: {e}")
             raise
     
     def parse_screen(self, screenshot_path):
-        """
-        Run omniparser on the screenshot to extract UI elements.
-        
-        Args:
-            screenshot_path (str): Path to the screenshot
-            
-        Returns:
-            list: Processed screen elements
-        """
+        """Parse the screen using OmniParser."""
         try:
-            # Use our custom omniparser_runner.py script
-            runner_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "omniparser_runner.py")
-            
-            # Create a temporary file for output
+            # Create temporary file for output
             with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as tmp:
                 output_path = tmp.name
             
-            # Build the command with parameters from config
-            cmd = f"python {runner_script} --input {screenshot_path} --output {output_path}"
+            logging.info(f"Created temporary output file: {output_path}")
             
-            # Add optional parameters from config
-            omniparser_config = self.config.get('omniparser_config', {})
-            if omniparser_config.get('use_paddleocr', True):
-                cmd += " --use_paddleocr"
-            if 'box_threshold' in omniparser_config:
-                cmd += f" --box_threshold {omniparser_config['box_threshold']}"
-            if 'iou_threshold' in omniparser_config:
-                cmd += f" --iou_threshold {omniparser_config['iou_threshold']}"
-            if 'imgsz' in omniparser_config:
-                cmd += f" --imgsz {omniparser_config['imgsz']}"
+            # Run OmniParser
+            command = f"python {Path(__file__).parent}/omniparser_runner.py --input {screenshot_path} --output {output_path} --use_paddleocr --box_threshold 0.05 --iou_threshold 0.1 --imgsz 640"
+            logging.info(f"Running OmniParser with command: {command}")
             
-            # Log the command we're executing
-            logging.info(f"Running OmniParser with command: {cmd}")
+            result = subprocess.run(command, shell=True, capture_output=True, text=True)
             
-            # Execute the command
-            result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+            if result.returncode != 0:
+                logging.error(f"Error parsing screen with omniparser: {command}")
+                logging.error(f"Command output:\n{result.stdout}")
+                logging.error(f"Command error:\n{result.stderr}")
+                raise RuntimeError(f"OmniParser failed with exit code {result.returncode}")
             
-            if result.stderr:
-                logging.warning(f"Omniparser warnings: {result.stderr}")
+            logging.info(f"OmniParser command completed successfully")
+            logging.info(f"Reading output from: {output_path}")
             
-            # Read and process the output
-            if os.path.exists(output_path):
-                with open(output_path, 'r') as f:
-                    parsed_output = json.load(f)
-                os.unlink(output_path)
-                
-                # Save the annotated image for debugging (optional)
-                if 'annotated_image' in parsed_output:
-                    debug_path = f"{os.path.splitext(screenshot_path)[0]}_annotated.png"
-                    with open(debug_path, 'wb') as f:
-                        f.write(base64.b64decode(parsed_output['annotated_image']))
-                    logging.info(f"Saved annotated image to: {debug_path}")
-                
-                # Return the parsed elements
-                elements = parsed_output.get('elements', [])
-                logging.info(f"Detected {len(elements)} screen elements")
-                
-                # Convert elements to the expected format
-                return self._process_omniparser_output("\n".join([f'icon {i}: {element}' for i, element in enumerate(elements)]))
-            else:
-                raise FileNotFoundError(f"Output file not found: {output_path}")
-        
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Error parsing screen with omniparser: {e}")
-            logging.error(f"Command output: {e.stdout}")
-            logging.error(f"Command error: {e.stderr}")
-            raise
+            # Read and parse output
+            with open(output_path, 'r') as f:
+                output_data = json.load(f)
+            
+            logging.info(f"Raw OmniParser output: {json.dumps(output_data, indent=2)}")
+            
+            if not output_data:
+                logging.error("OmniParser returned empty output")
+                return []
+            
+            # Save OmniParser output to a debug file
+            debug_dir = Path(self.config['screenshot_dir']) / 'debug'
+            debug_dir.mkdir(exist_ok=True)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            debug_file = debug_dir / f"omniparser_output_{timestamp}.json"
+            
+            with open(debug_file, 'w') as f:
+                json.dump(output_data, f, indent=2)
+            
+            logging.info(f"Saved OmniParser output to: {debug_file}")
+            
+            # Clean up temporary file
+            os.unlink(output_path)
+            
+            processed_elements = self._process_omniparser_output(output_data)
+            logging.info(f"Processed elements: {json.dumps(processed_elements, indent=2)}")
+            
+            return processed_elements
+            
         except Exception as e:
             logging.error(f"Error in parse_screen: {e}")
+            logging.error(f"Error type: {type(e)}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
             raise
     
     def _process_omniparser_output(self, output):
-        """
-        Process omniparser output and extract useful information.
-        
-        Args:
-            output (str): Raw omniparser output
+        """Process OmniParser output into a structured format."""
+        try:
+            if not output or 'filtered_boxes' not in output:
+                return []
             
-        Returns:
-            list: Structured screen elements
-        """
-        screen_elements = []
-        lines = output.strip().split('\n')
-        
-        for line in lines:
-            if not line.startswith('icon '):
-                continue
-            
-            try:
-                # Extract the icon number and content
-                icon_match = line.split(':', 1)
-                if len(icon_match) != 2:
+            elements = []
+            for box in output['filtered_boxes']:
+                if not isinstance(box, dict):
                     continue
-                
-                icon_id = icon_match[0].replace('icon ', '')
-                
-                # Convert the content to proper dict format
-                content_text = icon_match[1].strip()
-                # Convert single quotes to double quotes for JSON parsing
-                content_text = content_text.replace("'", '"')
-                content_text = content_text.replace('True', 'true').replace('False', 'false')
-                
-                try:
-                    content = json.loads(content_text)
-                except json.JSONDecodeError:
-                    # Fallback to ast.literal_eval for handling Python dict representation
-                    content = ast.literal_eval(icon_match[1].strip())
-                
-                # Add the icon id
-                content['id'] = int(icon_id)
-                
-                # Calculate center point for interaction
-                bbox = content['bbox']
-                center = [
-                    (bbox[0] + bbox[2]) / 2,
-                    (bbox[1] + bbox[3]) / 2
-                ]
-                
-                # Create a cleaner representation
-                screen_element = {
-                    'id': content['id'],
-                    'type': content['type'],
-                    'content': content['content'].strip(),
-                    'interactivity': content.get('interactivity', False),
-                    'position': {
-                        'x': round(center[0], 3),
-                        'y': round(center[1], 3)
-                    },
-                    'bbox': [round(coord, 3) for coord in bbox]
+                    
+                element = {
+                    'type': box.get('type', 'unknown'),
+                    'content': box.get('content', ''),
+                    'bbox': box.get('bbox', []),
+                    'interactivity': box.get('interactivity', False)
                 }
-                
-                screen_elements.append(screen_element)
-            except Exception as e:
-                logging.error(f"Error processing line: {line}")
-                logging.error(f"Exception: {e}")
-                continue
-        
-        logging.info(f"Processed {len(screen_elements)} screen elements")
-        return screen_elements
+                elements.append(element)
+            
+            return elements
+            
+        except Exception as e:
+            logging.error(f"Error processing OmniParser output: {e}")
+            return []
     
     def execute_action(self, action):
-        """
-        Execute the action on the device.
-        
-        Args:
-            action (dict): Action to execute
-            
-        Returns:
-            dict: Result of the action execution
-        """
+        """Execute an action on the device."""
         try:
-            # Manually convert 'click' to 'tap' for compatibility - sometimes the model will not strictly follow the prompt so we can force the correct action here 
-            if action['action'] == 'click':
-                logging.info(f"Converting 'click' action to 'tap'")
-                action['action'] = 'tap'
+            # Parse action
+            if isinstance(action, str):
+                action = ast.literal_eval(action)
             
-            logging.info(f"Executing action: {action['action']} on element \"{action.get('elementName', 'unknown')}\"")
-
-            # Fallback: Type → Tap (focus) if we never tapped it - prevents the model from trying to enter text before it has selected a text field
-            if action['action'] == 'type':
-                last_actions = self.context['previous_actions']
-                
-                # Make sure we at least have 'coordinates' in the original action JSON
-                if 'coordinates' not in action:
-                    # Without coordinates, we can’t convert "type" → "tap"
-                    # so either skip or raise an error
-                    msg = "No 'coordinates' given for a 'type' action. Skipping."
-                    logging.info(msg)
-                    return {
-                        'success': False,
-                        'error': msg,
-                        'action': action
-                    }
-                
-                # Also check if we tapped the same element last cycle
-                if not last_actions or last_actions[-1].get('action') != 'tap' \
-                or last_actions[-1].get('elementId') != action.get('elementId'):
-                    
-                    logging.info("Overriding 'type' action with a 'tap' first to focus text field.")
-                    action = {
-                        "action": "tap",
-                        "elementId": action['elementId'],
-                        "elementName": action.get('elementName', ''),
-                        "coordinates": action['coordinates'],  # now we know 'coordinates' exist
-                        "reasoning": "Need to tap first to focus the text field."
-                    }
-
-            # -------------------------------------------------------
-            # Now handle whichever action we end up with
-            # -------------------------------------------------------
-            if action['action'] == 'tap':
-                # Convert normalized coordinates to pixel coordinates
-                x, y = self._translate_coordinates(
-                    float(action['coordinates'][0]),
-                    float(action['coordinates'][1])
-                )
-                # Execute the tap
-                self._run_adb_command(f"shell input tap {x} {y}")
-                logging.info(f"Tapped at coordinates ({x}, {y})")
+            action_type = action.get('type', '').lower()
+            target = action.get('target', {})
             
-            elif action['action'] == 'swipe':
-                start_x = self.config['screen_width'] // 2
-                start_y = self.config['screen_height'] // 2
+            if action_type == 'tap':
+                # Convert normalized coordinates to actual coordinates
+                x, y = self._translate_coordinates(target.get('x', 0), target.get('y', 0))
+                self._run_adb_command(f'shell input tap {x} {y}')
+                logging.info(f"Tapped at ({x}, {y})")
                 
-                end_x, end_y = start_x, start_y
-                direction = action['direction']
+            elif action_type == 'type':
+                text = target.get('text', '')
+                self._run_adb_command(f'shell input text "{text}"')
+                logging.info(f"Typed text: {text}")
                 
-                if direction == 'up':
-                    end_y = int(start_y * 0.3)
-                elif direction == 'down':
-                    end_y = int(start_y * 1.7)
-                elif direction == 'left':
-                    end_x = int(start_x * 0.3)
-                elif direction == 'right':
-                    end_x = int(start_x * 1.7)
+            elif action_type == 'swipe':
+                # Convert normalized coordinates
+                start_x, start_y = self._translate_coordinates(target.get('start_x', 0), target.get('start_y', 0))
+                end_x, end_y = self._translate_coordinates(target.get('end_x', 0), target.get('end_y', 0))
+                duration = target.get('duration', 500)
                 
-                self._run_adb_command(f"shell input swipe {start_x} {start_y} {end_x} {end_y} 300")
-                logging.info(f"Swiped {direction}")
-            
-            elif action['action'] == 'type':
-                # Escape shell chars:
-                escaped_text = action['text'].replace("'", "\\'").replace('"', '\\"')
-                # Replace spaces with %s so the phone interprets them correctly - without this the text gets entered weird
-                escaped_text = escaped_text.replace(" ", "%s")
-
-                # Now run the command
-                self._run_adb_command(f"shell input text \"{escaped_text}\"")
-                logging.info(f"Typed text: \"{action['text']}\"")
-            
-            elif action['action'] == 'wait':
-                wait_time = action.get('waitTime', 1000)  # Default to 1 second
-                logging.info(f"Waiting for {wait_time}ms")
-                time.sleep(wait_time / 1000)
-            
+                self._run_adb_command(f'shell input swipe {start_x} {start_y} {end_x} {end_y} {duration}')
+                logging.info(f"Swiped from ({start_x}, {start_y}) to ({end_x}, {end_y})")
+                
+            elif action_type == 'press':
+                key = target.get('key', '')
+                self._run_adb_command(f'shell input keyevent {key}')
+                logging.info(f"Pressed key: {key}")
+                
             else:
-                raise ValueError(f"Unknown action type: {action['action']}")
+                logging.warning(f"Unknown action type: {action_type}")
             
-            return {
-                'success': True,
-                'action': action
-            }
-        
+            # Update context
+            self.context['previous_actions'].append(action)
+            
         except Exception as e:
             logging.error(f"Error executing action: {e}")
-            return {
-                'success': False,
-                'error': str(e),
-                'action': action
-            }
-
+            raise
     
     def _translate_coordinates(self, normalized_x, normalized_y):
-        """
-        Translate normalized coordinates to actual pixel coordinates.
-        
-        Args:
-            normalized_x (float): Normalized x coordinate (0-1)
-            normalized_y (float): Normalized y coordinate (0-1)
-            
-        Returns:
-            tuple: (x, y) pixel coordinates
-        """
+        """Convert normalized coordinates to actual screen coordinates."""
         x = int(normalized_x * self.config['screen_width'])
         y = int(normalized_y * self.config['screen_height'])
         return x, y
     
     def execute_cycle(self, user_request):
-        """
-        Execute a single interaction cycle.
-        
-        Args:
-            user_request (str): User's request
-            
-        Returns:
-            dict: Result of the action execution
-        """
+        """Execute one cycle of the agent."""
         try:
-            # Step 1: Capture the screen
+            # Capture screen
             screenshot_path = self.capture_screen()
             
-            # Step 2: Parse the screen with omniparser
+            # Parse screen
             screen_elements = self.parse_screen(screenshot_path)
             
-            # Step 3: Use Qwen VL to analyze the screenshot and determine the action
-            action = self.vl_agent.analyze_screenshot(
+            # Analyze with Gemini
+            response = self.vl_agent.analyze_screenshot(
                 screenshot_path,
                 user_request,
                 screen_elements,
                 self.context
             )
-
-            # 1) If there is an elementId but no coordinates, fill them from screen_elements
-            if action.get("elementId") is not None and "coordinates" not in action:
-                for elem in screen_elements:
-                    if elem["id"] == action["elementId"]:
-                        # Use the normalized position from OmniParser
-                        x = elem["position"]["x"]
-                        y = elem["position"]["y"]
-                        action["coordinates"] = [x, y]
-                        break
             
-            if not action:
-                raise Exception("Failed to determine action from screenshot")
-            
-            # Step 4: Execute the action on the device
-            result = self.execute_action(action)
-            
-            # result['action'] is the final, possibly overridden action
-            executed_action = result['action']
-
-            # Update context with what was *actually* executed
-            self.context['previous_actions'].append({
-                'action': executed_action['action'],            # Store the final corrected action
-                'elementId': executed_action.get('elementId'),  # etc.
-                'elementName': executed_action.get('elementName', ''),
-                'timestamp': time.time()
-            })
-            
-            # If we're opening an app, update the context
-            if (action['action'] == 'tap' and 
-                action.get('elementName') and 
-                action['elementName'] not in ['Circle', 'Dictate', 'Paste']):
-                self.context['current_app'] = action['elementName']
-            
-            return result
+            # Parse response and execute actions
+            try:
+                # Extract actions from response
+                actions = self._parse_actions(response)
+                
+                # Execute each action
+                for action in actions:
+                    self.execute_action(action)
+                    
+                return True
+                
+            except Exception as e:
+                logging.error(f"Error parsing or executing actions: {e}")
+                return False
+                
         except Exception as e:
             logging.error(f"Error in execution cycle: {e}")
-            raise
+            return False
     
-    def execute_task(self, user_request, max_cycles=10):
-        """
-        Execute a task by running multiple interaction cycles.
-        
-        Args:
-            user_request (str): User's request
-            max_cycles (int): Maximum number of cycles to execute
+    def _parse_actions(self, response):
+        """Parse actions from Gemini's response."""
+        try:
+            # Split response into lines and look for action descriptions
+            lines = response.split('\n')
+            actions = []
             
-        Returns:
-            dict: Result of the task execution
-        """
-        logging.info(f"Starting task: \"{user_request}\"")
-        
-        cycles = 0
-        while cycles < max_cycles:
-            try:
-                result = self.execute_cycle(user_request)
-                logging.info(f"Cycle {cycles + 1} completed: {result}")
-                
-                # Check if we should continue or if the task is complete
-                # This could be determined by asking the LLM if the task is complete
-                # or by checking for specific elements on the screen
-                
-                cycles += 1
-                
-                # Wait a moment for the UI to update
-                time.sleep(1)
-            except Exception as e:
-                logging.error(f"Error in cycle {cycles + 1}: {e}")
-                
-                # Retry logic
-                if cycles < self.config['max_retries']:
-                    logging.info(f"Retrying... ({cycles + 1}/{self.config['max_retries']})")
+            for line in lines:
+                line = line.strip()
+                if not line:
                     continue
-                
-                raise Exception(f"Failed to complete task after {cycles} cycles: {str(e)}")
+                    
+                # Look for action descriptions
+                if line.lower().startswith('tap'):
+                    # Parse coordinates
+                    try:
+                        coords_str = line.split('at')[1].strip().strip('()')
+                        x, y = map(float, coords_str.split(','))
+                        actions.append({
+                            'type': 'tap',
+                            'target': {'x': x, 'y': y}
+                        })
+                    except (IndexError, ValueError) as e:
+                        logging.warning(f"Could not parse tap coordinates from: {line}")
+                        continue
+                        
+                elif line.lower().startswith('type'):
+                    # Extract text to type
+                    try:
+                        text = line.split('type')[1].strip().strip('"')
+                        actions.append({
+                            'type': 'type',
+                            'target': {'text': text}
+                        })
+                    except IndexError as e:
+                        logging.warning(f"Could not parse type text from: {line}")
+                        continue
+                    
+                elif line.lower().startswith('swipe'):
+                    # Parse swipe parameters
+                    try:
+                        params = line.split('from')[1].strip().split('to')
+                        if len(params) == 2:
+                            start = params[0].strip().strip('()').split(',')
+                            end = params[1].strip().strip('()').split(',')
+                            if len(start) == 2 and len(end) == 2:
+                                actions.append({
+                                    'type': 'swipe',
+                                    'target': {
+                                        'start_x': float(start[0]),
+                                        'start_y': float(start[1]),
+                                        'end_x': float(end[0]),
+                                        'end_y': float(end[1]),
+                                        'duration': 500
+                                    }
+                                })
+                    except (IndexError, ValueError) as e:
+                        logging.warning(f"Could not parse swipe parameters from: {line}")
+                        continue
+                        
+                elif line.lower().startswith('press'):
+                    # Parse key code
+                    try:
+                        key_code = int(line.split('press')[1].strip())
+                        actions.append({
+                            'type': 'press',
+                            'target': {'key': key_code}
+                        })
+                    except (IndexError, ValueError) as e:
+                        logging.warning(f"Could not parse key code from: {line}")
+                        continue
+            
+            logging.info(f"Parsed actions: {json.dumps(actions, indent=2)}")
+            return actions
+            
+        except Exception as e:
+            logging.error(f"Error parsing actions: {e}")
+            logging.error(f"Response text: {response}")
+            return []
+    
+    def run(self, user_request):
+        """Run the agent with the given request."""
+        logging.info(f"Starting task: {user_request}")
         
-        logging.info(f"Task completed after {cycles} cycles")
-        return {
-            'success': True,
-            'cycles': cycles,
-            'context': self.context
-        }
+        for cycle in range(self.max_cycles):
+            logging.info(f"Starting cycle {cycle + 1}")
+            
+            try:
+                success = self.execute_cycle(user_request)
+                
+                if success:
+                    logging.info(f"Cycle {cycle + 1} completed successfully")
+                    return True  # Return True if cycle is successful
+                else:
+                    logging.error(f"Cycle {cycle + 1} failed")
+                    
+            except Exception as e:
+                logging.error(f"Error in cycle {cycle + 1}: {e}")
+                logging.info("Retrying... (1/3)")
+                
+                # Wait before retrying
+                time.sleep(2)
+                
+                try:
+                    success = self.execute_cycle(user_request)
+                    if success:
+                        logging.info(f"Retry successful")
+                        return True  # Return True if retry is successful
+                    else:
+                        logging.error(f"Retry failed")
+                except Exception as e:
+                    logging.error(f"Error in retry: {e}")
+                    break
+        
+        # If we get here, all cycles failed
+        return False
 
 
 if __name__ == "__main__":
@@ -549,14 +464,24 @@ if __name__ == "__main__":
             'device_id': None,  # Will use first connected device
             'screen_width': 1080,
             'screen_height': 2340,
-            'qwen_model_path': 'Qwen/Qwen2.5-VL-3B-Instruct'
+            'omniparser_path': './omniparser',
+            'screenshot_dir': './screenshots',
+            'max_retries': 3,
+            'adb_path': None
         }
     
-    # Create agent with loaded config
-    agent = PhoneAgent(config)
+    # Initialize Gemini agent
+    from gemini_vl_agent import GeminiVLAgent
+    vl_agent = GeminiVLAgent(api_key=os.getenv('GOOGLE_API_KEY'))
+    
+    # Create phone agent with loaded config
+    agent = PhoneAgent(
+        vl_agent=vl_agent,
+        config=config,
+        max_cycles=10
+    )
     
     try:
-        result = agent.execute_task('Open Chrome and search for the weather in New York')
-        print('Task execution result:', result)
+        agent.run('Open Chrome and search for the weather in New York')
     except Exception as e:
         print(f"Task execution failed: {e}")

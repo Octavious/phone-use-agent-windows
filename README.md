@@ -15,15 +15,26 @@ The Phone Use Agent automates interactions with Android devices by:
 ## Requirements
 
 - Python 3.10
-- Linux operating system
+- Windows 10/11 or Linux operating system
 - Android Debug Bridge (ADB)
 - CUDA-capable GPU (Tested on 3xxx GPU with Cuda 12.4)
 - Connected Android device with USB debugging enabled
 
-## Installing ADB on Linux
+## Installing ADB
 
-ADB is required for the Phone Agent to communicate with your Android device. Install it on Linux with:
+### On Windows:
+1. Download Android Studio from https://developer.android.com/studio
+2. During installation, make sure to install the Android SDK
+3. Add the platform-tools to your PATH:
+   - Open System Properties > Advanced > Environment Variables
+   - Under System Variables, find and select "Path"
+   - Click Edit and add the path to platform-tools (typically `%LOCALAPPDATA%\Android\Sdk\platform-tools`)
+4. Verify the installation by opening a new Command Prompt and running:
+   ```cmd
+   adb version
+   ```
 
+### On Linux:
 ```bash
 sudo apt update
 sudo apt install adb
@@ -97,6 +108,30 @@ adb shell wm size
 
 Update the values in `config.json` to match your device's resolution exactly. Incorrect resolution settings will cause the agent to tap in the wrong locations.
 
+## Windows-Specific Setup
+
+1. Install NVIDIA Drivers:
+   - Download and install the latest NVIDIA drivers for your GPU
+   - Make sure CUDA 12.4 is installed
+
+2. Install CUDA Toolkit:
+   - Download CUDA 12.4 from NVIDIA's website
+   - Follow the installation instructions
+   - Add CUDA to your PATH
+
+3. Configure GPU Memory:
+   - The application will automatically adjust GPU memory settings for Windows
+   - If you experience OOM errors, you can modify the GPU settings in `qwen_vl_agent.py`
+
+4. ADB Configuration:
+   - The application will automatically detect your ADB installation
+   - If ADB is not found, you can specify the path in `config.json`:
+     ```json
+     {
+       "adb_path": "C:\\Users\\YourUsername\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe"
+     }
+     ```
+
 ## Usage Options
 
 ### Command Line Interface
@@ -150,6 +185,7 @@ Edit `config.json` to configure:
   "qwen_model_path": "Qwen/Qwen2.5-VL-3B-Instruct",
   "use_gpu": true,
   "temperature": 0.1,
+  "adb_path": null,  // Will auto-detect on Windows
 
   "omniparser_config": {
     "use_paddleocr": true,
@@ -182,6 +218,13 @@ The Main Controller manages execution cycles, tracks context between actions, ha
 
 ## Troubleshooting
 
+### Windows-Specific Issues:
+- **ADB not found**: Make sure Android Studio is installed and platform-tools is in your PATH
+- **CUDA errors**: Verify NVIDIA drivers and CUDA toolkit are properly installed
+- **GPU memory issues**: The application will automatically adjust settings for Windows
+- **Path issues**: Use forward slashes (/) in config.json paths or escaped backslashes (\\)
+
+### General Issues:
 - **Wrong tap locations**: Verify your device resolution in `config.json` matches the actual device
 - **ADB connection issues**: Make sure USB debugging is enabled and you've authorized the computer on your device
 - **OmniParser errors**: Check that all model weights are correctly downloaded and placed in the proper directories

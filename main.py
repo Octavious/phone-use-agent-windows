@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Main entry point for the Phone Agent with Qwen2.5-VL.
+Main entry point for the Phone Agent with Gemini 2.0 Flash.
 This script sets up and runs the agent with command-line arguments.
 """
 
@@ -9,9 +9,11 @@ import json
 import argparse
 import logging
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Import our main agent class
 from phone_agent import PhoneAgent
+from gemini_vl_agent import GeminiVLAgent
 
 def setup_logging(log_level=logging.INFO):
     """Set up logging configuration."""
@@ -46,54 +48,49 @@ def load_config(config_path):
         return {}
 
 def main():
+    # Load environment variables from .env file
+    load_dotenv()
+    
     # Parse command-line arguments
-    parser = argparse.ArgumentParser(description='Phone Agent with Qwen2.5-VL')
-    parser.add_argument('--config', type=str, default='config.json',
-                        help='Path to configuration file')
-    parser.add_argument('--task', type=str, required=True,
-                        help='Task to execute (e.g., "Open Chrome and search for weather")')
-    parser.add_argument('--max-cycles', type=int, default=10,
-                        help='Maximum number of interaction cycles')
-    parser.add_argument('--device-id', type=str, default=None,
-                        help='ADB device ID (optional, will use first device if not specified)')
-    parser.add_argument('--debug', action='store_true',
-                        help='Enable debug logging')
-    
+    parser = argparse.ArgumentParser(description='Phone Agent with Gemini 2.0 Flash')
+    parser.add_argument('--task', required=True, help='Task to perform')
+    parser.add_argument('--max-cycles', type=int, default=int(os.getenv('MAX_CYCLES', 10)), help='Maximum number of execution cycles')
+    parser.add_argument('--config', default='config.json', help='Path to configuration file')
+    parser.add_argument('--api-key', help='Google API key for Gemini (overrides .env file)')
+    parser.add_argument('--temperature', type=float, default=float(os.getenv('GEMINI_TEMPERATURE', 0.1)), help='Temperature for text generation')
     args = parser.parse_args()
-    
+
     # Set up logging
-    log_level = logging.DEBUG if args.debug else logging.INFO
-    setup_logging(log_level)
-    
+    setup_logging()
+
     # Load configuration
     config = load_config(args.config)
-    
-    # Override config with command-line arguments
-    if args.device_id:
-        config['device_id'] = args.device_id
-    
-    # Create and run the agent
+
+    # Get API key from command line, environment variable, or .env file
+    api_key = args.api_key or os.getenv('GOOGLE_API_KEY')
+    if not api_key:
+        raise ValueError("API key not found. Please set GOOGLE_API_KEY in .env file or provide --api-key argument.")
+
+    # Initialize the Gemini VL agent
+    vl_agent = GeminiVLAgent(
+        api_key=api_key,
+        temperature=args.temperature
+    )
+
+    # Initialize and run the phone agent
+    agent = PhoneAgent(
+        vl_agent=vl_agent,
+        config=config,
+        max_cycles=args.max_cycles
+    )
+
     try:
-        logging.info(f"Starting Phone Agent with task: {args.task}")
-        agent = PhoneAgent(config)
-        
-        # Execute the task
-        result = agent.execute_task(args.task, max_cycles=args.max_cycles)
-        
-        # Log the result
-        logging.info(f"Task execution result: {result}")
-        
-        if result['success']:
-            print(f"✅ Task completed successfully in {result['cycles']} cycles.")
-        else:
-            print(f"❌ Task failed after {result['cycles']} cycles.")
-        
+        agent.run(args.task)
     except KeyboardInterrupt:
-        logging.info("Operation canceled by user")
-        print("\n⚠️ Operation canceled by user")
+        logging.info("Agent stopped by user")
     except Exception as e:
-        logging.error(f"Error executing task: {e}", exc_info=True)
-        print(f"❌ Error: {e}")
+        logging.error(f"Error running agent: {e}")
+        raise
 
 if __name__ == "__main__":
     main()

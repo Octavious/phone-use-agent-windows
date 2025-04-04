@@ -2,6 +2,7 @@
   "device_id": null,
   "screen_width": 1080,
   "screen_height": 2340,
+  "adb_path": "F:\\AndroidSDK\\platform-tools\\adb.exe",
   "omniparser_path": "./OmniParser",
   "screenshot_dir": "./screenshots",
   "max_retries": 3,
