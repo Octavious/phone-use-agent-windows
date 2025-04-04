@@ -165,7 +165,6 @@ Edit `config.json` to configure:
   "qwen_model_path": "Qwen/Qwen2.5-VL-3B-Instruct",
   "use_gpu": true,
   "temperature": 0.1,
-  "adb_path": null,  // Will auto-detect on Windows
 
   "omniparser_config": {
     "use_paddleocr": true,
