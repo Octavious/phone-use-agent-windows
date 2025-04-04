@@ -61,7 +61,7 @@ adb version
    git clone https://github.com/Octavious/OmniParser-windows.git
    ```
 
-3. Rename OmniParser-windows to OmniParser (optinal, i will do it in the next script anyways)
+3. Rename OmniParser-windows to OmniParser (optional, i will do it in the next script anyways)
 
 4. Download OmniParser weights:
    ```cmd
