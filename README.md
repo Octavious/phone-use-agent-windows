@@ -1,4 +1,4 @@
-# Phone Use Agent for Winodws
+# Phone Use Agent for Windows
 
 An experimental Python agent that controls Android phones using ~~Qwen2.5-VL~~ Gemini 2.0 Flash, OmniParser, and ADB.
 I left the Qwen2.5 VL code in, theoritically it should work on windows with my modifications, but i could not test it, since i dont have a good GPU, hence i replaced it with Gemini 2.0 Flash.
