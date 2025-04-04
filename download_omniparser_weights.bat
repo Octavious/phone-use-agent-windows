@@ -1,6 +1,13 @@
 @echo off
 REM Windows batch script to download OmniParser weights
 
+
+REM Rename OmniParser-windows to OmniParser if it exists, just to keep things simple
+if exist "OmniParser-windows" (
+    echo Renaming OmniParser-windows to OmniParser...
+    ren "OmniParser-windows" "OmniParser"
+)
+
 REM Check if OmniParser directory exists
 if not exist "OmniParser" (
     echo Error: OmniParser directory not found

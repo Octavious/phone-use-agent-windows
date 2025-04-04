@@ -55,19 +55,22 @@ adb version
 
 2. Clone OmniParser into the phone-use-agent directory:
    ```cmd
-   git clone https://github.com/microsoft/OmniParser.git
+   git clone https://github.com/Octavious/OmniParser-windows.git
    ```
-3. Download OmniParser weights:
+
+3. Rename OmniParser-windows to OmniParser (optinal, i will do it in the next script anyways)
+
+4. Download OmniParser weights:
    ```cmd
    .\download_omniparser_weights.bat
    ```
-4. Create and activate ~~conda~~ uv environment:
+5. Create and activate ~~conda~~ uv environment:
    ```cmd
    uv venv --python 3.10
    .venv\Scripts\activate
    ```
 
-5. Install all dependencies:
+6. Install all dependencies:
    ```cmd
    uv pip install -r requirements.txt
    ```
@@ -119,15 +122,16 @@ Update the values in `config.json` to match your device's resolution exactly. In
 ### Command Line Interface
 
 1. Connect your Android device via USB and enable USB debugging in Developer Options
-2. Ensure ~~conda~~ uv environment is activated:
+2. Create a .env file and define GOOGLE_API_KEY
+3. Ensure ~~conda~~ uv environment is activated:
    ```cmd
    .venv\Scripts\activate
    ```
-3. ~~Reccomended to run the first time through the CLI so we can see vLLM Qwen2.5VL download process~~
+4. ~~Reccomended to run the first time through the CLI so we can see vLLM Qwen2.5VL download process~~
 4. Define tasks in the tasks.json file
 5. Run tasks:
    ```cmd
-   \run_tasks.py
+   python run_tasks.py
    ```
 
 ### Graphical User Interface  __I haven't tried this__

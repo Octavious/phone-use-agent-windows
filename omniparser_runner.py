@@ -15,6 +15,7 @@ import warnings
 import logging
 import io
 import locale
+import numpy as np
 from pathlib import Path
 from transformers import logging as transformers_logging
 
@@ -83,6 +84,24 @@ def parse_arguments():
     parser.add_argument("--use_paddleocr", action="store_true", help="Use PaddleOCR for text detection")
     parser.add_argument("--imgsz", type=int, default=640, help="Image size for detection")
     return parser.parse_args()
+
+def convert_to_serializable(obj):
+    """Convert NumPy types to Python native types for JSON serialization."""
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.float32):
+        return float(obj)
+    elif isinstance(obj, np.float64):
+        return float(obj)
+    elif isinstance(obj, np.int32):
+        return int(obj)
+    elif isinstance(obj, np.int64):
+        return int(obj)
+    elif isinstance(obj, list):
+        return [convert_to_serializable(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {key: convert_to_serializable(value) for key, value in obj.items()}
+    return obj
 
 def process_image(image_path, box_threshold, iou_threshold, use_paddleocr, imgsz):
     """Process an image with OmniParser."""
@@ -202,8 +221,8 @@ def process_image(image_path, box_threshold, iou_threshold, use_paddleocr, imgsz
             # Prepare output
             output = {
                 'image': labeled_img,
-                'label_coordinates': label_coordinates,
-                'filtered_boxes': filtered_boxes
+                'label_coordinates': convert_to_serializable(label_coordinates),
+                'filtered_boxes': convert_to_serializable(filtered_boxes)
             }
             
             return output
@@ -244,6 +263,9 @@ def main():
                 'label_coordinates': [],
                 'filtered_boxes': []
             }
+        
+        # Convert any remaining NumPy types to Python native types
+        output_data = convert_to_serializable(output_data)
         
         # Save output to file
         with open(args.output, 'w') as f:

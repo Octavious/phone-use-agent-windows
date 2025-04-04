@@ -7,16 +7,25 @@ accelerate>=0.27.0
 safetensors>=0.4.2
 tokenizers>=0.15.2
 google-generativeai>=0.3.2
+openai>=1.12.0
+ultralytics==8.3.70
+einops==0.8.0
+timm
+dashscope
+groq
 
 # Image processing
 Pillow>=10.2.0
 numpy>=1.26.0
 opencv-python>=4.9.0.80
+opencv-python-headless
 easyocr>=1.7.1
 paddleocr>=2.7.0.3
 paddlepaddle>=2.5.2
 paddle2onnx>=1.1.3
 protobuf==3.20.3  # Fixed version for PaddleOCR compatibility
+matplotlib>=3.8.0
+supervision==0.18.0
 
 # Web and API
 gradio>=4.19.2
@@ -24,11 +33,27 @@ requests>=2.31.0
 uvicorn>=0.27.1
 websockets>=10.0,<12.0
 websocket-client>=1.8.0
+streamlit>=1.38.0
+azure-identity
+anthropic[bedrock,vertex]>=0.37.1
+boto3>=1.28.57
+google-auth<3,>=2
 
 # Utilities
 pydantic>=2.6.1
 PyYAML>=6.0.1
 python-dotenv>=1.0.1
+setuptools>=69.0.0
+ruff==0.6.7
+pre-commit==3.8.0
+pytest==8.3.3
+pytest-asyncio==0.23.6
+jsonschema==4.22.0
+
+# UI and Automation
+pyautogui==0.9.54
+screeninfo
+uiautomation
 
 # Platform-specific
 pywin32>=306; sys_platform == 'win32'

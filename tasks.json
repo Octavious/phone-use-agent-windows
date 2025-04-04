@@ -7,8 +7,8 @@
         },
         {
             "id": 2,
-            "description": "Take a photo",
-            "command": "Take a photo using the camera"
+            "description": "Take a photo by pressing the circular photo capture white button",
+            "command": "Take a photo by pressing the circular photo capture white button"
         }
     ]
 } 
